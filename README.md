@@ -16,7 +16,7 @@ A customizable system information fetch tool, inspired by neofetch but designed 
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/fletch.git
+git clone https://github.com/tesla1618/fletch.git
 cd fletch
 chmod +x install.sh
 ./install.sh
