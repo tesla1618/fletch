@@ -1,0 +1,11 @@
+# Icons Info Style
+OS_ICON="󰍹"
+KERNEL_ICON="󰌢"
+CPU_ICON="󰻠"
+MEMORY_ICON="󰑭"
+DISK_ICON="󰋊"
+SHELL_ICON="󰆍"
+WM_ICON="󰖟"
+UPTIME_ICON="󰮯"
+PACKAGES_ICON="󰔐"
+TERMINAL_ICON="󰩟" 
