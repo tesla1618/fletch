@@ -1,0 +1,588 @@
+#!/bin/bash
+
+# Fletch - A customizable system info fetch tool 🐧
+# Version: 2.0
+
+# Default values
+DEFAULT_CONFIG_DIR="$HOME/.config/fletch"
+DEFAULT_ASCII_ART="auto"
+DEFAULT_THEME="default"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Color reset
+RESET=$'\e[0m'
+
+# Function to print usage
+show_help() {
+    cat << EOF
+Fletch - A customizable system info fetch tool
+
+Usage: fletch [OPTIONS]
+
+OPTIONS:
+    -a, --ascii ART         Set ASCII art (auto, distro-specific, or file path)
+    -i, --info STYLE        Set info style (icons, no-icons, minimal, retro)
+    -t, --theme THEME       Set color theme (default, nord, dracula, gruvbox)
+    -d, --distro DISTRO     Override distro detection
+    --tagline TEXT          Set custom tagline
+    -c, --config FILE       Use custom config file
+    --no-color              Disable colors
+    --list-ascii            List available ASCII arts
+    --list-themes           List available themes
+    --list-distros          List supported distros
+    --list-info-styles      List info styles
+    -h, --help              Show this help message
+    -v, --version           Show version
+
+Examples:
+    fletch                  Auto-detect distro and use appropriate ASCII
+    fletch -a tux           Use Tux ASCII art
+    fletch -d ubuntu        Force Ubuntu detection
+    fletch -i retro         Use retro info style
+    fletch -t nord          Use Nord theme
+    fletch --no-color       Disable colors
+
+Config file: ~/.config/fletch/fletch.conf
+EOF
+}
+
+# Function to print version
+show_version() {
+    echo "Fletch v2.0 - Custom system info fetch tool"
+}
+
+# Function to list available ASCII arts
+list_ascii() {
+    echo "Available ASCII arts:"
+    echo "  Auto-detection:"
+    echo "    - auto (detects distro and uses appropriate ASCII)"
+    echo ""
+    echo "  Distro-specific (in distro/ folder):"
+    if [[ -d "$SCRIPT_DIR/distro" ]]; then
+        for file in "$SCRIPT_DIR/distro"/*.txt; do
+            if [[ -f "$file" ]]; then
+                local name=$(basename "$file" .txt)
+                echo "    - $name"
+            fi
+        done
+    fi
+    echo ""
+    echo "  Generic (in ascii/ folder):"
+    if [[ -d "$SCRIPT_DIR/ascii" ]]; then
+        for file in "$SCRIPT_DIR/ascii"/*.txt; do
+            if [[ -f "$file" ]]; then
+                local name=$(basename "$file" .txt)
+                echo "    - $name"
+            fi
+        done
+    fi
+    echo ""
+    echo "  Custom: You can also specify a path to your own ASCII art file"
+}
+
+# Function to list available info styles
+list_info_styles() {
+    echo "Available info styles:"
+    if [[ -d "$SCRIPT_DIR/info" ]]; then
+        for file in "$SCRIPT_DIR/info"/*.txt; do
+            if [[ -f "$file" ]]; then
+                local name=$(basename "$file" .txt)
+                echo "  - $name"
+            fi
+        done
+    fi
+}
+
+# Function to list supported distros
+list_distros() {
+    echo "Supported distros for auto-detection:"
+    echo "  - arch"
+    echo "  - ubuntu" 
+    echo "  - debian"
+    echo "  - fedora"
+    echo "  - manjaro"
+    echo "  - opensuse"
+    echo "  - gentoo"
+    echo "  - void"
+    echo "  - alpine"
+    echo "  - centos"
+    echo "  - rhel"
+    echo "  - mint"
+    echo "  - pop"
+    echo "  - elementary"
+    echo "  - kali"
+    echo "  - parrot"
+    echo "  - tails"
+    echo "  - nixos"
+    echo "  - freebsd"
+    echo "  - openbsd"
+    echo "  - netbsd"
+}
+
+# Function to list available themes
+list_themes() {
+    echo "Available themes:"
+    echo "  - default"
+    echo "  - nord"
+    echo "  - dracula"
+    echo "  - gruvbox"
+}
+
+# Function to load configuration
+load_config() {
+    local config_file="$1"
+    
+    # Create config directory if it doesn't exist
+    if [[ ! -d "$DEFAULT_CONFIG_DIR" ]]; then
+        mkdir -p "$DEFAULT_CONFIG_DIR"
+        # Copy default config if it doesn't exist
+        if [[ -f "$SCRIPT_DIR/config/fletch.conf" ]]; then
+            cp "$SCRIPT_DIR/config/fletch.conf" "$DEFAULT_CONFIG_DIR/"
+        fi
+    fi
+    
+    # Use provided config file or default
+    if [[ -n "$config_file" ]]; then
+        CONFIG_FILE="$config_file"
+    elif [[ -f "$DEFAULT_CONFIG_DIR/fletch.conf" ]]; then
+        CONFIG_FILE="$DEFAULT_CONFIG_DIR/fletch.conf"
+    elif [[ -f "$SCRIPT_DIR/config/fletch.conf" ]]; then
+        CONFIG_FILE="$SCRIPT_DIR/config/fletch.conf"
+    fi
+    
+    # Load config file if it exists
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE"
+    fi
+}
+
+# Function to load theme
+load_theme() {
+    local theme="$1"
+    local theme_file=""
+    
+    # Check for theme file in script directory first, then user config
+    if [[ -f "$SCRIPT_DIR/themes/$theme.conf" ]]; then
+        theme_file="$SCRIPT_DIR/themes/$theme.conf"
+    elif [[ -f "$DEFAULT_CONFIG_DIR/themes/$theme.conf" ]]; then
+        theme_file="$DEFAULT_CONFIG_DIR/themes/$theme.conf"
+    else
+        echo "Warning: Theme '$theme' not found, using default colors"
+        return 1
+    fi
+    
+    source "$theme_file"
+}
+
+# Function to detect distro
+detect_distro() {
+    local distro_id=""
+    
+    # Try to detect from /etc/os-release
+    if [[ -f /etc/os-release ]]; then
+        distro_id=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"' | tr '[:upper:]' '[:lower:]')
+    fi
+    
+    # Fallback detections
+    if [[ -z "$distro_id" ]]; then
+        if [[ -f /etc/arch-release ]]; then
+            distro_id="arch"
+        elif [[ -f /etc/debian_version ]]; then
+            distro_id="debian"
+        elif [[ -f /etc/fedora-release ]]; then
+            distro_id="fedora"
+        elif [[ -f /etc/gentoo-release ]]; then
+            distro_id="gentoo"
+        elif [[ -f /etc/alpine-release ]]; then
+            distro_id="alpine"
+        elif [[ "$(uname)" == "Darwin" ]]; then
+            distro_id="macos"
+        elif [[ "$(uname)" == "FreeBSD" ]]; then
+            distro_id="freebsd"
+        elif [[ "$(uname)" == "OpenBSD" ]]; then
+            distro_id="openbsd"
+        elif [[ "$(uname)" == "NetBSD" ]]; then
+            distro_id="netbsd"
+        else
+            distro_id="unknown"
+        fi
+    fi
+    
+    # Normalize some common variations
+    case "$distro_id" in
+        "linuxmint") distro_id="mint" ;;
+        "elementary") distro_id="elementary" ;;
+        "pop") distro_id="pop" ;;
+        "parrotsec") distro_id="parrot" ;;
+        "opensuse-leap"|"opensuse-tumbleweed"|"suse") distro_id="opensuse" ;;
+    esac
+    
+    echo "$distro_id"
+}
+
+# Function to get distro tagline
+get_distro_tagline() {
+    local distro="$1"
+    
+    # Load distro configurations
+    if [[ -f "$SCRIPT_DIR/config/distros.conf" ]]; then
+        source "$SCRIPT_DIR/config/distros.conf"
+    fi
+    
+    # Return tagline or default
+    if [[ -n "${DISTRO_TAGLINES[$distro]}" ]]; then
+        echo "${DISTRO_TAGLINES[$distro]}"
+    else
+        echo "$distro vibes ✨"
+    fi
+}
+
+# Function to load info style
+load_info_style() {
+    local style="$1"
+    local style_file=""
+    
+    # Check for style file
+    if [[ -f "$SCRIPT_DIR/info/$style.txt" ]]; then
+        style_file="$SCRIPT_DIR/info/$style.txt"
+    elif [[ -f "$DEFAULT_CONFIG_DIR/info/$style.txt" ]]; then
+        style_file="$DEFAULT_CONFIG_DIR/info/$style.txt"
+    else
+        echo "Warning: Info style '$style' not found, using icons"
+        style_file="$SCRIPT_DIR/info/icons.txt"
+    fi
+    
+    if [[ -f "$style_file" ]]; then
+        source "$style_file"
+    fi
+}
+
+# Function to load ASCII art
+load_ascii() {
+    local ascii_choice="$1"
+    local detected_distro="$2"
+    local ascii_file=""
+    
+    # Handle auto-detection
+    if [[ "$ascii_choice" == "auto" ]]; then
+        # Try distro-specific ASCII first
+        if [[ -f "$SCRIPT_DIR/distro/$detected_distro.txt" ]]; then
+            ascii_file="$SCRIPT_DIR/distro/$detected_distro.txt"
+        elif [[ -f "$DEFAULT_CONFIG_DIR/distro/$detected_distro.txt" ]]; then
+            ascii_file="$DEFAULT_CONFIG_DIR/distro/$detected_distro.txt"
+        else
+            # Fallback to generic arch/tux/etc
+            if [[ -f "$SCRIPT_DIR/ascii/gigachad.txt" ]]; then
+                ascii_file="$SCRIPT_DIR/ascii/gigachad.txt"
+            fi
+        fi
+    else
+        # Manual ASCII selection
+        if [[ -f "$ascii_choice" ]]; then
+            ascii_file="$ascii_choice"
+        elif [[ -f "$SCRIPT_DIR/distro/$ascii_choice.txt" ]]; then
+            ascii_file="$SCRIPT_DIR/distro/$ascii_choice.txt"
+        elif [[ -f "$SCRIPT_DIR/ascii/$ascii_choice.txt" ]]; then
+            ascii_file="$SCRIPT_DIR/ascii/$ascii_choice.txt"
+        elif [[ -f "$DEFAULT_CONFIG_DIR/distro/$ascii_choice.txt" ]]; then
+            ascii_file="$DEFAULT_CONFIG_DIR/distro/$ascii_choice.txt"
+        elif [[ -f "$DEFAULT_CONFIG_DIR/ascii/$ascii_choice.txt" ]]; then
+            ascii_file="$DEFAULT_CONFIG_DIR/ascii/$ascii_choice.txt"
+        else
+            echo "Warning: ASCII art '$ascii_choice' not found, using default"
+            ascii_file="$SCRIPT_DIR/distro/$detected_distro.txt"
+        fi
+    fi
+    
+    if [[ -f "$ascii_file" ]]; then
+        mapfile -t ASCII_LINES < "$ascii_file"
+    else
+        # Fallback ASCII if no file found - load from arch distro
+        ASCII_LINES=(
+            "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⢋⢝⢉⣉⡝⡻⣿⣿⣿⣿⣿"
+            "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⡰⠅⡀⠀⠁⠆⠈⡞⣿⣿⣿⣿"
+            "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡁⠁⠠⣢⣿⣗⣶⡆⢰⣿⣿⣿⣿"
+            "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠁⠄⢸⣧⣀⡁⡯⠉⣼⣿⣿⣿⣿"
+            "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢎⠁⠈⠙⠟⢁⠼⢯⣿⣿⣿⣿⣿"
+            "⣿⣿⣿⣿⣿⠿⢿⠿⠿⠛⠛⠟⢠⡆⠀⠀⠰⣄⢀⣿⣿⣿⣿⣿⣿"
+            "⣿⠟⢁⡀⢀⣀⣀⡀⠄⠀⢴⣶⢸⣿⠁⣤⣄⣀⡸⣿⣿⣿⣿⣿⣿"
+            "⠇⣴⣿⠀⣿⣿⣿⣿⣷⣦⡈⣿⡏⠏⣼⢟⡻⣻⣿⣿⡻⣿⣿⣿⣿"
+            "⡄⢻⣿⣤⡹⣿⣿⣿⣿⣿⣷⡀⠀⠀⣡⣤⣶⣾⣷⣝⢿⣮⡿⣿⣿"
+            "⣿⠈⡿⠉⡀⠈⣿⣿⣿⣿⣿⡇⢠⣿⣿⣿⣿⣿⣿⣿⣷⣹⣿⣟⣿"
+            "⣡⡾⢃⡐⠟⠀⣿⣿⣿⣿⡿⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⢿⣿⣿⣿"
+            "⣩⣴⣿⣿⡄⠀⠻⢿⣿⡿⠁⢰⣿⣿⣿⣿⣿⡿⡏⢋⣿⣘⣿⣧⣿"
+            "⣿⣿⣿⣿⣿⠀⢢⠄⠀⠀⠀⠀⠙⠻⢿⣿⡫⢊⢠⢸⣿⣿⣎⣷⢻"
+            "⣿⣿⣿⣿⣿⠁⠆⢐⣛⡻⠰⠿⢷⠆⢠⢖⡴⡃⢻⡆⣿⣿⣳⣿⣸"
+            "⣿⣿⣿⣿⡿⢠⡁⠛⠿⡛⢐⣻⣶⣾⢸⣯⡫⣿⣄⠸⠈⣷⡹⣿⢽"
+        )
+    fi
+}
+
+# Function to get system information
+get_system_info() {
+    # User and hostname
+    USER_INFO="$USER"
+    if [[ -n "$CUSTOM_HOSTNAME" ]]; then
+        HOSTNAME_INFO="$CUSTOM_HOSTNAME"
+    else
+        HOSTNAME_INFO="$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")"
+    fi
+    
+    # OS Information
+    if [[ -f /etc/os-release ]]; then
+        OS_INFO="$(grep '^PRETTY_NAME' /etc/os-release | cut -d= -f2 | tr -d '\"')"
+    else
+        OS_INFO="$(uname -o)"
+    fi
+    
+    # Kernel
+    KERNEL_INFO="$(uname -r)"
+    
+    # CPU
+    if [[ -f /proc/cpuinfo ]]; then
+        CPU_INFO="$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+    else
+        CPU_INFO="$(uname -p)"
+    fi
+    
+    # Memory
+    if command -v free >/dev/null 2>&1; then
+        RAM_INFO="$(free -h --si | awk '/Mem:/ {print $3 "/" $2}')"
+    else
+        RAM_INFO="Unknown"
+    fi
+    
+    # Disk
+    if command -v df >/dev/null 2>&1; then
+        DISK_INFO="$(df -h / | awk 'NR==2 {print $3 "/" $2 " used"}')"
+    else
+        DISK_INFO="Unknown"
+    fi
+    
+    # Shell
+    SHELL_INFO="$SHELL"
+    
+    # Window Manager/Desktop Environment
+    WM_INFO="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-Unknown}}"
+    
+    # Uptime
+    if command -v uptime >/dev/null 2>&1; then
+        UPTIME_INFO="$(uptime -p 2>/dev/null | sed 's/up //' || uptime | awk '{print $3,$4}' | sed 's/,//')"
+    else
+        UPTIME_INFO="Unknown"
+    fi
+    
+    # Packages
+    case "$PKG_MANAGER" in
+        "pacman")
+            if command -v pacman >/dev/null 2>&1; then
+                PACKAGES_INFO="$(pacman -Q | wc -l) (pacman)"
+            else
+                PACKAGES_INFO="Unknown"
+            fi
+            ;;
+        "apt")
+            if command -v dpkg >/dev/null 2>&1; then
+                PACKAGES_INFO="$(dpkg -l | grep -c '^ii') (apt)"
+            else
+                PACKAGES_INFO="Unknown"
+            fi
+            ;;
+        "dnf"|"yum")
+            if command -v rpm >/dev/null 2>&1; then
+                PACKAGES_INFO="$(rpm -qa | wc -l) ($PKG_MANAGER)"
+            else
+                PACKAGES_INFO="Unknown"
+            fi
+            ;;
+        *)
+            PACKAGES_INFO="Unknown"
+            ;;
+    esac
+    
+    # Terminal
+    TERMINAL_INFO="${TERM:-Unknown}"
+}
+
+# Function to build info lines
+build_info_lines() {
+    local detected_distro="$1"
+    local custom_tagline="$2"
+    local lines=()
+    
+    # User@hostname
+    lines+=("${USER_COLOR}${USER_INFO}${SEPARATOR_COLOR}@${HOST_COLOR}${HOSTNAME_INFO}${RESET}")
+    lines+=("")
+    
+    # System information with dynamic icons
+    [[ "$SHOW_OS" == "true" ]] && lines+=("${LABEL_COLOR}${OS_ICON} OS${RESET}       ${VALUE_COLOR}${OS_INFO}${RESET}")
+    [[ "$SHOW_KERNEL" == "true" ]] && lines+=("${LABEL_COLOR}${KERNEL_ICON} Kernel${RESET}   ${VALUE_COLOR}${KERNEL_INFO}${RESET}")
+    [[ "$SHOW_CPU" == "true" ]] && lines+=("${LABEL_COLOR}${CPU_ICON} CPU${RESET}      ${VALUE_COLOR}${CPU_INFO}${RESET}")
+    [[ "$SHOW_MEMORY" == "true" ]] && lines+=("${LABEL_COLOR}${MEMORY_ICON} Memory${RESET}   ${VALUE_COLOR}${RAM_INFO}${RESET}")
+    [[ "$SHOW_DISK" == "true" ]] && lines+=("${LABEL_COLOR}${DISK_ICON} Disk${RESET}     ${VALUE_COLOR}${DISK_INFO}${RESET}")
+    [[ "$SHOW_SHELL" == "true" ]] && lines+=("${LABEL_COLOR}${SHELL_ICON} Shell${RESET}    ${VALUE_COLOR}${SHELL_INFO}${RESET}")
+    [[ "$SHOW_WM" == "true" ]] && lines+=("${LABEL_COLOR}${WM_ICON} WM/DE${RESET}    ${VALUE_COLOR}${WM_INFO}${RESET}")
+    
+    lines+=("")
+    
+    [[ "$SHOW_UPTIME" == "true" ]] && lines+=("${LABEL_COLOR}${UPTIME_ICON} Uptime${RESET}   ${VALUE_COLOR}${UPTIME_INFO}${RESET}")
+    [[ "$SHOW_PACKAGES" == "true" ]] && lines+=("${LABEL_COLOR}${PACKAGES_ICON} Packages${RESET} ${VALUE_COLOR}${PACKAGES_INFO}${RESET}")
+    [[ "$SHOW_TERMINAL" == "true" ]] && lines+=("${LABEL_COLOR}${TERMINAL_ICON} Terminal${RESET} ${VALUE_COLOR}${TERMINAL_INFO}${RESET}")
+    
+    lines+=("")
+    
+    # Dynamic tagline
+    local tagline
+    if [[ -n "$custom_tagline" ]]; then
+        tagline="$custom_tagline"
+    else
+        tagline="$(get_distro_tagline "$detected_distro")"
+    fi
+    
+    lines+=("${ACCENT_COLOR}█${RESET} ${TITLE_COLOR}${tagline}${RESET}")
+    
+    printf '%s\n' "${lines[@]}"
+}
+
+# Function to display the fetch
+display_fetch() {
+    local detected_distro="$1"
+    local custom_tagline="$2"
+    local info_lines
+    readarray -t info_lines < <(build_info_lines "$detected_distro" "$custom_tagline")
+    
+    local max_lines=$((${#ASCII_LINES[@]} > ${#info_lines[@]} ? ${#ASCII_LINES[@]} : ${#info_lines[@]}))
+    
+    for ((i=0; i<max_lines; i++)); do
+        # Print ASCII art line with color
+        if [[ $i -lt ${#ASCII_LINES[@]} ]]; then
+            if [[ "$COLOR" == "true" ]]; then
+                echo -en "${ASCII_COLOR}${ASCII_LINES[i]}${RESET}${SEPARATOR}"
+            else
+                echo -en "${ASCII_LINES[i]}${SEPARATOR}"
+            fi
+        else
+            # Print spaces for alignment
+            local spaces_needed=$(($(echo "${ASCII_LINES[0]}" | wc -m) - 1 + ${#SEPARATOR}))
+            printf "%*s" "$spaces_needed" ""
+        fi
+        
+        # Print system info line
+        if [[ $i -lt ${#info_lines[@]} ]]; then
+            if [[ "$COLOR" == "true" ]]; then
+                echo -e "${info_lines[i]}"
+            else
+                echo -e "${info_lines[i]}" | sed 's/\x1b\[[0-9;]*m//g'
+            fi
+        else
+            echo ""
+        fi
+    done
+    
+    echo ""
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|--ascii)
+            CLI_ASCII="$2"
+            shift 2
+            ;;
+        -i|--info)
+            CLI_INFO_STYLE="$2"
+            shift 2
+            ;;
+        -t|--theme)
+            CLI_THEME="$2"
+            shift 2
+            ;;
+        -d|--distro)
+            CLI_DISTRO="$2"
+            shift 2
+            ;;
+        --tagline)
+            CLI_TAGLINE="$2"
+            shift 2
+            ;;
+        -c|--config)
+            CLI_CONFIG="$2"
+            shift 2
+            ;;
+        --no-color)
+            CLI_NO_COLOR="true"
+            shift
+            ;;
+        --list-ascii)
+            list_ascii
+            exit 0
+            ;;
+        --list-themes)
+            list_themes
+            exit 0
+            ;;
+        --list-distros)
+            list_distros
+            exit 0
+            ;;
+        --list-info-styles)
+            list_info_styles
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            show_version
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use 'fletch --help' for usage information."
+            exit 1
+            ;;
+    esac
+done
+
+# Load configuration
+load_config "$CLI_CONFIG"
+
+# Apply CLI overrides
+ASCII_ART="${CLI_ASCII:-$ASCII_ART}"
+INFO_STYLE="${CLI_INFO_STYLE:-$INFO_STYLE}"
+THEME="${CLI_THEME:-$THEME}"
+DISTRO_OVERRIDE="${CLI_DISTRO:-$DISTRO_OVERRIDE}"
+CUSTOM_TAGLINE="${CLI_TAGLINE:-$CUSTOM_TAGLINE}"
+[[ "$CLI_NO_COLOR" == "true" ]] && COLOR="false"
+
+# Set defaults if not specified
+ASCII_ART="${ASCII_ART:-auto}"
+INFO_STYLE="${INFO_STYLE:-icons}"
+THEME="${THEME:-$DEFAULT_THEME}"
+COLOR="${COLOR:-true}"
+SEPARATOR="${SEPARATOR:-   }"
+
+# Detect distro (unless overridden)
+if [[ -n "$DISTRO_OVERRIDE" ]]; then
+    DETECTED_DISTRO="$DISTRO_OVERRIDE"
+else
+    DETECTED_DISTRO="$(detect_distro)"
+fi
+
+# Load theme
+if [[ "$COLOR" == "true" ]]; then
+    load_theme "$THEME"
+fi
+
+# Load info style
+load_info_style "$INFO_STYLE"
+
+# Load ASCII art
+load_ascii "$ASCII_ART" "$DETECTED_DISTRO"
+
+# Get system information
+get_system_info
+
+# Display the fetch
+display_fetch "$DETECTED_DISTRO" "$CUSTOM_TAGLINE"
